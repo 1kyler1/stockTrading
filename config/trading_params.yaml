@@ -1,0 +1,55 @@
+# Trading Parameters Configuration
+
+# Stocks to trade
+STOCKS:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - TSLA
+  - AMZN
+
+# Data Configuration
+DATA:
+  LOOKBACK_DAYS: 730 # 2 years of historical data for training
+  WINDOW_SIZE: 60 # Rolling window for LSTM input (past 60 days)
+  TRAIN_SPLIT: 0.70 # 70% training data
+  VAL_SPLIT: 0.15 # 15% validation data
+  TEST_SPLIT: 0.15 # 15% test data
+
+# LSTM Model Configuration
+MODEL:
+  HIDDEN_UNITS: 128
+  NUM_LAYERS: 2
+  DROPOUT: 0.2
+  EPOCHS: 100
+  BATCH_SIZE: 32
+  LEARNING_RATE: 0.001
+
+# Strategy Configuration
+STRATEGY:
+  LSTM_CONFIDENCE_THRESHOLD: 0.65 # Minimum confidence for LSTM signal
+  RSI_PERIOD: 14
+  RSI_OVERSOLD: 30 # RSI below this for BUY confirmation
+  RSI_OVERBOUGHT: 70 # RSI above this for SELL confirmation
+
+# Risk Management
+RISK_MANAGEMENT:
+  RISK_PER_TRADE: 0.02 # Risk 2% of portfolio per trade
+  STOP_LOSS_PERCENT: 0.02 # 2% stop loss from entry
+  TAKE_PROFIT_PERCENT: 0.05 # 5% take profit from entry
+  MAX_POSITIONS: 5 # Maximum concurrent open positions
+  MAX_PORTFOLIO_EXPOSURE: 0.50 # Max 50% of capital at risk
+
+# Market Configuration
+MARKET:
+  MARKET_OPEN_HOUR: 9
+  MARKET_OPEN_MINUTE: 30
+  MARKET_CLOSE_HOUR: 16
+  MARKET_CLOSE_MINUTE: 0
+  TIMEZONE: "America/New_York"
+
+# Backtesting Configuration
+BACKTEST:
+  SLIPPAGE: 0.001 # 0.1% slippage in backtest
+  COMMISSION: 0.001 # 0.1% commission per trade
+  INITIAL_CASH: 100000 # Starting capital for backtest

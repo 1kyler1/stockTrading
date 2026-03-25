@@ -1,0 +1,21 @@
+# Environment variables (keep secrets out of git)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Data & models (large files)
+data/
+models/
+
+# Logs
+logs/
+
+# macOS
+.DS_Store
