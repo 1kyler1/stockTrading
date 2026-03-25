@@ -6,7 +6,7 @@ Phase 2 Test: LSTM Model Development and Training.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.fetcher import DataFetcher
 from src.models.lstm_predictor import LSTMPredictor

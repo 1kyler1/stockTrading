@@ -6,7 +6,7 @@ Phase 9 Test: Alerting + CI readiness
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.alerting.alerts import format_alert_message, send_email_alert, send_slack_alert
 

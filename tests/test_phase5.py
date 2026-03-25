@@ -11,7 +11,7 @@ from datetime import datetime
 import logging
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import (
     APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL,

@@ -6,7 +6,7 @@ Phase 3 Test: Trading Strategy Engine & Risk Management.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.strategy.engine import TradingStrategy, PortfolioManager
 from src.models.lstm_predictor import LSTMPredictor

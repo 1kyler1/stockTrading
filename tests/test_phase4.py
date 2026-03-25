@@ -11,7 +11,7 @@ import numpy as np
 import logging
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import STOCKS, BACKTEST_CONFIG
 from src.data.fetcher import DataFetcher

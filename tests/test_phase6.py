@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.monitoring.monitor import PerformanceMonitor
 
