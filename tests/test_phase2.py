@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.fetcher import DataFetcher
 from src.models.lstm_predictor import LSTMPredictor
+from src.config import STOCKS
 import numpy as np
 from sklearn.model_selection import train_test_split
 
@@ -18,12 +19,31 @@ def test_lstm_model():
     print("=" * 60)
     print("Phase 2 Test: LSTM Model Development")
     print("=" * 60)
-    
+
     # Test 1: Data preparation
-    print("\n[Test 1] Preparing data from real stock...")
+    print(f"\n[Test 1] Preparing data from all {len(STOCKS)} stocks...")
     try:
         fetcher = DataFetcher()
-        X, y, df_norm, scaler = fetcher.get_processed_data("AAPL")
+        all_X, all_y = [], []
+        for symbol in STOCKS:
+            try:
+                X_s, y_s, _, _ = fetcher.get_processed_data(symbol)
+                if len(X_s) > 0:
+                    all_X.append(X_s)
+                    all_y.append(y_s)
+                    print(f"  ✓ {symbol}: {len(X_s)} samples")
+                else:
+                    print(f"  ⚠ {symbol}: no samples, skipping")
+            except Exception as e:
+                print(f"  ⚠ {symbol}: error ({e}), skipping")
+
+        X = np.concatenate(all_X, axis=0)
+        y = np.concatenate(all_y, axis=0)
+
+        # Shuffle so stocks are mixed throughout train/val/test
+        shuffle_idx = np.random.permutation(len(X))
+        X, y = X[shuffle_idx], y[shuffle_idx]
+
         print(f"✓ Data prepared: X shape = {X.shape}, y shape = {y.shape}")
         print(f"  Class balance - Down: {(y==0).sum()}, Up: {(y==1).sum()}")
     except Exception as e:

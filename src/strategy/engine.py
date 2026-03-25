@@ -81,9 +81,10 @@ class TradingStrategy:
             # Get current technical indicators
             current_rsi = recent_data['RSI'].iloc[-1] if 'RSI' in recent_data.columns else 50
             current_close = recent_data['Close'].iloc[-1]
-            
+            current_sma200 = recent_data['SMA_200'].iloc[-1] if 'SMA_200' in recent_data.columns else None
+
             # Combine signals
-            signal = self._combine_signals(lstm_signal, confidence, current_rsi, current_close)
+            signal = self._combine_signals(lstm_signal, confidence, current_rsi, current_close, current_sma200)
             
             return {
                 'signal': signal,
@@ -97,99 +98,148 @@ class TradingStrategy:
             logger.error(f"Error generating signal for {symbol}: {e}")
             return {'signal': 'HOLD', 'reason': f'Error: {str(e)}', 'confidence': 0.0}
     
-    def _combine_signals(self, lstm_signal: str, confidence: float, rsi: float, current_price: float) -> str:
+    def _combine_signals(self, lstm_signal: str, confidence: float, rsi: float,
+                         current_price: float, sma_200: Optional[float] = None) -> str:
         """
         Combine LSTM and technical indicator signals.
-        
+
         Args:
             lstm_signal: BUY or SELL from LSTM
             confidence: LSTM confidence score
             rsi: Current RSI value
             current_price: Current stock price
-        
+            sma_200: 200-day SMA value (trend filter gate)
+
         Returns:
             Final signal: BUY, SELL, or HOLD
         """
         # Check LSTM confidence threshold
         if confidence < self.lstm_threshold:
-            return 'HOLD'  # Not confident enough
-        
+            return 'HOLD'
+
         # Apply technical confirmation
         if lstm_signal == 'BUY':
-            # For BUY: need oversold RSI or strong LSTM confidence
+            # Trend filter: only buy in uptrend (price above 200-day SMA)
+            if sma_200 is not None and current_price < sma_200:
+                logger.info(f"BUY blocked by trend filter: price ${current_price:.2f} below SMA200 ${sma_200:.2f}")
+                return 'HOLD'
             if rsi < self.rsi_oversold or confidence > 0.7:
                 return 'BUY'
             else:
                 return 'HOLD'
-        
+
         elif lstm_signal == 'SELL':
-            # For SELL: need overbought RSI or strong LSTM confidence
             if rsi > self.rsi_overbought or confidence > 0.7:
                 return 'SELL'
             else:
                 return 'HOLD'
-        
+
         return 'HOLD'
     
-    def calculate_position_size(self, portfolio_value: float, current_price: float, 
-                              volatility: Optional[float] = None) -> float:
+    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> float:
+        """
+        Calculate Average True Range (ATR) from OHLCV data.
+
+        Args:
+            df: DataFrame with High, Low, Close columns
+            period: ATR period (default 14)
+
+        Returns:
+            ATR value, or None if insufficient data
+        """
+        if len(df) < period + 1:
+            return None
+
+        high = df['High']
+        low = df['Low']
+        close = df['Close']
+        prev_close = close.shift(1)
+
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs()
+        ], axis=1).max(axis=1)
+
+        return tr.rolling(period).mean().iloc[-1]
+
+    def calculate_position_size(self, portfolio_value: float, current_price: float,
+                              atr: Optional[float] = None) -> float:
         """
         Calculate position size based on risk management rules.
-        
+
         Args:
             portfolio_value: Current portfolio value
             current_price: Current stock price
-            volatility: Optional volatility measure
-        
+            atr: ATR value for dynamic stop loss (uses fixed % if None)
+
         Returns:
             Number of shares to trade
         """
-        # Risk amount per trade
         risk_amount = portfolio_value * self.risk_per_trade
-        
-        # Stop loss in dollars
-        stop_loss_dollars = current_price * self.stop_loss_pct
-        
-        # Position size = risk amount / stop loss dollars
-        shares = risk_amount / stop_loss_dollars
-        
-        # Round down to whole shares
-        shares = int(shares)
-        
-        # Ensure at least 1 share
+
+        if atr is not None:
+            # ATR-based stop: 2x ATR below entry
+            stop_loss_dollars = atr * 2
+        else:
+            # Fallback to fixed percentage
+            stop_loss_dollars = current_price * self.stop_loss_pct
+
+        shares = int(risk_amount / stop_loss_dollars)
         return max(1, shares)
-    
-    def should_exit_position(self, entry_price: float, current_price: float, 
-                           position_type: str) -> Tuple[bool, str]:
+
+    def calculate_stop_price(self, entry_price: float, atr: Optional[float] = None,
+                             position_type: str = 'LONG') -> float:
+        """
+        Calculate the stop loss price for a position.
+
+        Args:
+            entry_price: Entry price
+            atr: ATR value (uses fixed % if None)
+            position_type: 'LONG' or 'SHORT'
+
+        Returns:
+            Stop loss price
+        """
+        if atr is not None:
+            stop_distance = atr * 2
+        else:
+            stop_distance = entry_price * self.stop_loss_pct
+
+        if position_type == 'LONG':
+            return entry_price - stop_distance
+        else:
+            return entry_price + stop_distance
+
+    def should_exit_position(self, entry_price: float, current_price: float,
+                           position_type: str, stop_price: Optional[float] = None) -> Tuple[bool, str]:
         """
         Check if position should be exited based on stop loss/take profit.
-        
+
         Args:
             entry_price: Price when position was entered
             current_price: Current price
             position_type: 'LONG' or 'SHORT'
-        
+            stop_price: ATR-based stop price (uses fixed % if None)
+
         Returns:
             Tuple of (should_exit, reason)
         """
         if position_type == 'LONG':
-            # Check stop loss
-            if current_price <= entry_price * (1 - self.stop_loss_pct):
+            # Stop loss: use ATR-based price if available, else fixed %
+            stop = stop_price if stop_price is not None else entry_price * (1 - self.stop_loss_pct)
+            if current_price <= stop:
                 return True, 'STOP_LOSS'
-            
-            # Check take profit
             if current_price >= entry_price * (1 + self.take_profit_pct):
                 return True, 'TAKE_PROFIT'
-        
+
         elif position_type == 'SHORT':
-            # Check stop loss (price went up)
-            if current_price >= entry_price * (1 + self.stop_loss_pct):
+            stop = stop_price if stop_price is not None else entry_price * (1 + self.stop_loss_pct)
+            if current_price >= stop:
                 return True, 'STOP_LOSS'
-            
-            # Check take profit (price went down)
             if current_price <= entry_price * (1 - self.take_profit_pct):
                 return True, 'TAKE_PROFIT'
-        
+
         return False, ''
 
 
@@ -266,28 +316,31 @@ class PortfolioManager:
 
         return True
     
-    def open_position(self, symbol: str, shares: int, price: float, position_type: str = 'LONG'):
+    def open_position(self, symbol: str, shares: int, price: float,
+                      position_type: str = 'LONG', stop_price: Optional[float] = None):
         """
         Open a new position.
-        
+
         Args:
             symbol: Stock symbol
             shares: Number of shares
             price: Entry price
             position_type: 'LONG' or 'SHORT'
+            stop_price: ATR-based stop loss price
         """
         if not self.can_open_position(symbol, shares, price):
             logger.warning(f"Cannot open position for {symbol}: insufficient funds or limits reached")
             return False
-        
+
         cost = shares * price
         self.cash -= cost
-        
+
         self.positions[symbol] = {
             'shares': shares,
             'entry_price': price,
             'entry_time': datetime.now(),
-            'type': position_type
+            'type': position_type,
+            'stop_price': stop_price
         }
         
         logger.info(f"Opened {position_type} position: {shares} shares of {symbol} at ${price:.2f}")

@@ -217,15 +217,21 @@ class PaperTradingExecutor:
                     logger.warning(f"LSTM prediction failed for {symbol}: {e}, using 0.5")
                     confidence = 0.5
 
-                # Get current RSI
+                # Get current RSI and SMA_200
                 current_rsi = df_with_indicators['RSI'].iloc[-1] if 'RSI' in df_with_indicators.columns else 50
+                current_sma200 = df_with_indicators['SMA_200'].iloc[-1] if 'SMA_200' in df_with_indicators.columns else None
                 current_price = df['Close'].iloc[-1]
+
+                # Calculate ATR for dynamic stop loss
+                atr = self.trading_strategy.calculate_atr(df)
 
                 # Generate signal
                 signal_info = {
                     'lstm_confidence': confidence,
                     'rsi_value': current_rsi,
+                    'sma_200': current_sma200,
                     'current_price': current_price,
+                    'atr': atr,
                     'timestamp': datetime.now(EASTERN)
                 }
 
@@ -234,7 +240,8 @@ class PaperTradingExecutor:
                     'BUY' if confidence > 0.5 else 'SELL',
                     confidence,
                     current_rsi,
-                    current_price
+                    current_price,
+                    current_sma200
                 )
 
                 return signal, signal_info
@@ -278,10 +285,16 @@ class PaperTradingExecutor:
             current_price = signal_info['current_price']
             portfolio_value = account['portfolio_value']
 
+            # Calculate ATR from recent data for dynamic stop loss
+            atr = signal_info.get('atr', None)
+
             # Check if we should execute
             if signal == 'BUY' and current_position == 0:
-                # Calculate position size
-                shares = self.trading_strategy.calculate_position_size(portfolio_value, current_price)
+                # Calculate position size using ATR-based stop distance
+                shares = self.trading_strategy.calculate_position_size(portfolio_value, current_price, atr=atr)
+
+                # Calculate the actual stop price to store with the position
+                stop_price = self.trading_strategy.calculate_stop_price(current_price, atr=atr)
 
                 if shares > 0:
                     # Check buying power
@@ -296,8 +309,9 @@ class PaperTradingExecutor:
                             time_in_force='day'
                         )
 
-                        logger.info(f"BUY ORDER PLACED: {symbol} {shares} shares at ~${current_price:.2f}")
-                        self.portfolio_manager.open_position(symbol, shares, current_price, signal_info)
+                        atr_str = f"{atr:.2f}" if atr is not None else "N/A"
+                        logger.info(f"BUY ORDER PLACED: {symbol} {shares} shares at ~${current_price:.2f} | stop=${stop_price:.2f} (ATR={atr_str})")
+                        self.portfolio_manager.open_position(symbol, shares, current_price, stop_price=stop_price)
                         return True
                     else:
                         logger.warning(f"Insufficient buying power for {symbol}: need ${cost:.2f}, have ${account['buying_power']:.2f}")
@@ -322,6 +336,33 @@ class PaperTradingExecutor:
         except Exception as e:
             logger.error(f"Error executing signal for {symbol}: {e}")
             return False
+
+    def is_eod_exit_time(self) -> bool:
+        """Check if it's time to close all positions (3:55 PM ET)."""
+        now = datetime.now(EASTERN)
+        return now.weekday() < 5 and now.hour == 15 and now.minute >= 55
+
+    def close_all_positions(self):
+        """Close all open positions for end-of-day exit."""
+        positions = self.get_positions()
+        if not positions:
+            logger.info("EOD: No open positions to close")
+            return
+
+        logger.info(f"EOD EXIT: Closing {len(positions)} position(s)...")
+        for symbol, pos in positions.items():
+            try:
+                qty = pos['qty']
+                self.api.submit_order(
+                    symbol=symbol,
+                    qty=qty,
+                    side='sell',
+                    type='market',
+                    time_in_force='day'
+                )
+                logger.info(f"EOD EXIT: Sold {qty} shares of {symbol}")
+            except Exception as e:
+                logger.error(f"EOD EXIT: Failed to close {symbol}: {e}")
 
     def run_trading_cycle(self) -> Dict[str, Dict]:
         """
@@ -359,12 +400,12 @@ class PaperTradingExecutor:
 
         return results
 
-    def start_trading(self, cycle_interval_seconds: int = 300):
+    def start_trading(self, cycle_interval_seconds: int = 60):
         """
         Start automated trading loop.
 
         Args:
-            cycle_interval_seconds: Seconds between trading cycles (default 5 minutes)
+            cycle_interval_seconds: Seconds between trading cycles (default 1 minute)
         """
         logger.info("Starting automated paper trading...")
         self.is_trading_active = True
@@ -375,6 +416,13 @@ class PaperTradingExecutor:
                 if not self.is_market_open():
                     logger.info("Market closed, waiting...")
                     time.sleep(60)  # Check every minute
+                    continue
+
+                # EOD exit: close all positions at 3:55 PM
+                if self.is_eod_exit_time():
+                    self.close_all_positions()
+                    logger.info("EOD exit complete, waiting for market close...")
+                    time.sleep(60)
                     continue
 
                 # Run trading cycle

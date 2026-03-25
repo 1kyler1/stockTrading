@@ -2,11 +2,30 @@
 
 # Stocks to trade
 STOCKS:
+  # Tech
   - AAPL
   - MSFT
   - GOOGL
   - TSLA
   - AMZN
+  # Finance
+  - JPM
+  - GS
+  - V
+  # Healthcare
+  - UNH
+  - JNJ
+  - ABBV
+  # Consumer
+  - WMT
+  - HD
+  - MCD
+  # Energy
+  - XOM
+  - CVX
+  # Industrial
+  - CAT
+  - BA
 
 # Data Configuration
 DATA:
